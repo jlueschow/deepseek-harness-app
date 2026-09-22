@@ -114,10 +114,18 @@ pub fn sanitize_url(raw: &str) -> Option<String> {
 
 /// 探测给定 URL 是否可达（TCP 连接）。
 pub fn probe_url(url: &str) -> bool {
-    let hostport = url
+    let without_scheme = url
         .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .trim_end_matches('/');
+        .trim_start_matches("https://");
+    // Only the authority (host:port) is a valid SocketAddr; drop everything
+    // from the first '/' onward (path, query string). Explicit-connect URLs
+    // routinely carry a "?token=..." auth token (the normal shape of every
+    // dsh web ready line), so without this the parse below always fails and
+    // every reachable explicit URL is reported as unreachable.
+    let hostport = without_scheme
+        .split('/')
+        .next()
+        .unwrap_or(without_scheme);
     match hostport.parse::<std::net::SocketAddr>() {
         Ok(addr) => TcpStream::connect_timeout(&addr, Duration::from_millis(1200)).is_ok(),
         Err(_) => false,
@@ -142,5 +150,26 @@ mod tests {
         let raw = serde_json::to_string(&s).unwrap();
         let back: AppSettings = serde_json::from_str(&raw).unwrap();
         assert_eq!(back.connect, ConnectTarget::Smart);
+    }
+
+    #[test]
+    fn probe_url_reaches_a_real_listener_despite_query_string() {
+        // Regression test: every real "dsh web:" URL carries "?token=..."
+        // (see lib.rs's own parse_port_from_url fix for the same class of
+        // bug). probe_url used to try to parse the WHOLE remainder after
+        // the scheme as a SocketAddr, so any path/query string made a
+        // genuinely reachable server look unreachable.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let bare = format!("http://{addr}");
+        let with_token = format!("http://{addr}/?token=abc123");
+        let with_trailing_slash = format!("http://{addr}/");
+
+        assert!(probe_url(&bare), "bare host:port must still work");
+        assert!(probe_url(&with_token), "host:port with a query string must be reachable");
+        assert!(probe_url(&with_trailing_slash), "host:port with a trailing slash must be reachable");
+
+        drop(listener);
+        assert!(!probe_url(&with_token), "closed port must be reported unreachable");
     }
 }

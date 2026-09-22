@@ -40,8 +40,11 @@
  *        (check latest, one-click `install_dsh` update, copy command).
  */
 
-import { defineStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// @deepseek-ai/dsh-client-runtime/client was renamed to @deepseek-ai/dsh-client-store
+// in a later dsh release; the old specifier is no longer registered in the client
+// module table ("missed the module table ... no registered package factory").
+import { defineStore } from '@deepseek-ai/dsh-client-store'
+import type { ClientContext } from '@deepseek-ai/dsh-client-store'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import * as React from 'react'
 import { createPortal } from 'react-dom'

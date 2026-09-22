@@ -499,8 +499,7 @@ fn connect_and_navigate(app: &tauri::AppHandle) -> Result<(), ConnectError> {
                 DEFAULT_URL.to_string()
             } else {
                 let _ = app.emit("dsh://phase", "starting:");
-                let (mut child, port) = spawn_dsh_web(app)?;
-                let url = format!("http://127.0.0.1:{port}");
+                let (mut child, url) = spawn_dsh_web(app)?;
                 let pid = child.id();
                 if let Some(state) = app.try_state::<ServerState>() {
                     *state.0.lock().unwrap() = Some((pid, url.clone()));
@@ -1616,7 +1615,7 @@ fn managed_dsh_entry() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
 /// 启动 dsh web（带 dsh-app-bridge 插件）：
 /// 通过独立 profile `dsh-app` 启动，加载官方 web app + 我们的桌面桥插件，
 /// 不污染用户自己的 web profile。
-fn spawn_dsh_web(app: &tauri::AppHandle) -> Result<(Child, u16), ConnectError> {
+fn spawn_dsh_web(app: &tauri::AppHandle) -> Result<(Child, String), ConnectError> {
     let mut context: Vec<String> = Vec::new();
 
     // 确保独立 profile 就绪（幂等，失败仅告警——用户可手动处理）；
@@ -1716,8 +1715,16 @@ fn spawn_dsh_web(app: &tauri::AppHandle) -> Result<(Child, u16), ConnectError> {
                     }
                     if let Some(idx) = trimmed.find(READY_MARKER) {
                         let url_part = trimmed[idx + READY_MARKER.len()..].trim();
-                        if let Some(port) = parse_port_from_url(url_part) {
-                            return Ok((child, port));
+                        // parse_port_from_url only validates that a port is
+                        // present; the URL itself (including the auth token
+                        // query string dsh always appends) must be kept
+                        // intact and returned as-is, otherwise every request
+                        // against this instance (window navigation AND the
+                        // notification callback's POST /api/respond via
+                        // current_service_url) hits "authentication
+                        // required" because the token got silently dropped.
+                        if parse_port_from_url(url_part).is_some() {
+                            return Ok((child, url_part.to_string()));
                         }
                     }
                 }
