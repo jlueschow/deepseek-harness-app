@@ -1747,10 +1747,21 @@ fn spawn_dsh_web(app: &tauri::AppHandle) -> Result<(Child, u16), ConnectError> {
 fn parse_port_from_url(url_part: &str) -> Option<u16> {
     let clean = url_part
         .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .trim_end_matches('/');
-    let port = clean.rsplit(':').next()?;
-    port.parse().ok()
+        .trim_start_matches("https://");
+    let after_colon = clean.rsplit(':').next()?;
+    // Nur die fuehrenden Ziffern nehmen: alles ab dem ersten Nicht-Ziffer-
+    // Zeichen (Pfad, Query-String wie "?token=...") gehoert nicht zum Port.
+    // Vorher schlug das bei jeder "dsh web:"-Zeile mit Token fehl (Regelfall,
+    // nicht Ausnahme), z.B. "http://127.0.0.1:57814/?token=...": die alte
+    // Version versuchte "57814/?token=..." als u16 zu parsen und scheiterte
+    // still -> die Lese-Schleife blockierte anschliessend endlos auf der
+    // naechsten stdout-Zeile (die nie kam), statt das 30s-Timeout mit
+    // Fehlermeldung zu zeigen.
+    let digits: String = after_colon
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().ok()
 }
 
 fn kill_spawned_server(app: &tauri::AppHandle) {
